@@ -53,7 +53,7 @@ $ docker-compose up -d
 Download OpenTelemetry JAR (e.g. using [Coursier](https://get-coursier.io)):
 
 ```shell
-$ OTEL_AGENT_PATH=$(cs fetch --classpath "io.opentelemetry.javaagent:opentelemetry-javaagent:1.12.0")
+$ OTEL_AGENT_PATH=$(cs fetch --classpath "io.opentelemetry.javaagent:opentelemetry-javaagent:1.18.0")
 ```
 
 Then start each component:
