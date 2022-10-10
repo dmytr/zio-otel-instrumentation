@@ -4,6 +4,7 @@ import dev.profunktor.redis4cats.connection.RedisClient
 import dev.profunktor.redis4cats.data.RedisCodec
 import dev.profunktor.redis4cats.effect.Log
 import dev.profunktor.redis4cats.{Redis, RedisCommands}
+import example.tracer._
 import zio._
 import zio.interop.catz._
 import zio.interop.catz.implicits._

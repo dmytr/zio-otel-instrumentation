@@ -52,7 +52,7 @@ $ docker-compose up -d
 
 Download OpenTelemetry JAR (e.g. using [Coursier](https://get-coursier.io)):
 
-```shell
+```shell-Dotel.service.name=example-consumer -Dotel.traces.exporter=jaeger -Dotel.exporter.jaeger.endpoint=http://localhost:14250 -Dotel.propagators=jaeger -Dotel.traces.sampler=always_on -javaagent:/home/dima/.cache/coursier/v1/https/repo1.maven.org/maven2/io/opentelemetry/javaagent/opentelemetry-javaagent/1.12.0/opentelemetry-javaagent-1.12.0.jar
 $ OTEL_AGENT_PATH=$(cs fetch --classpath "io.opentelemetry.javaagent:opentelemetry-javaagent:1.12.0")
 ```
 

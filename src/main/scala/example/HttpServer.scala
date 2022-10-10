@@ -2,7 +2,8 @@ package example
 
 import doobie.Transactor
 import doobie.implicits._
-import sttp.model.StatusCode
+import example.tracer._
+import sttp.model.{Header, StatusCode}
 import sttp.tapir.server.ziohttp.ZioHttpInterpreter
 import sttp.tapir.ztapir.RichZEndpoint
 import zhttp.http.{Http, Request, Response}
@@ -32,9 +33,11 @@ object HttpServer extends TracedApp {
     } yield Server.start(8080, http).unit.orDie
   }
 
-  def handleRequest(producer: Producer)(payload: Payload): ZIO[Any, Nothing, StatusCode] =
+  def handleRequest(producer: Producer)(headers: List[Header], payload: Payload): ZIO[Any, Nothing, StatusCode] =
     span("handle_request", "http_server_tag" -> payload.id) {
       for {
+        _ <- addBaggage("http_server_tag", payload.id)
+        // _ <- ZIO.succeed(println(headers))
         _ <- publishPayload(producer, payload)
         _ <- persistPayload(payload)
       } yield StatusCode.Ok
@@ -65,7 +68,9 @@ object HttpServer extends TracedApp {
     Producer.make(settings)
 
   private def makeHttp(producer: Producer): Http[Any, Throwable, Request, Response] =
-    ZioHttpInterpreter().toHttp(Routes.pokeEndpoint.zServerLogic(handleRequest(producer)))
+    ZioHttpInterpreter().toHttp(Routes.pokeEndpoint.zServerLogic { case (headers, payload) =>
+      handleRequest(producer)(headers, payload)
+    })
 
   private lazy val transactor: Transactor[Task] =
     Transactor.fromDriverManager(
