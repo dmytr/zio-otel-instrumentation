@@ -1,104 +1,46 @@
 package zio
 
-import datadog.trace.api.GlobalTracer
-import zio.DataDogSupervisor.Helper
+import ddtrot.dd.trace.bootstrap.instrumentation.api.{AgentSpan, AgentTracer, ScopeSource}
 
 import java.util.concurrent.ConcurrentHashMap
 
-final class DataDogSupervisor private (private val helper: Helper) extends Supervisor[Unit] {
+final class DataDogSupervisor private (tracer: AgentTracer.TracerAPI) extends Supervisor[Unit] {
 
-  private val storage = new ConcurrentHashMap[Int, (Any, Any)]()
+  private val storage = new ConcurrentHashMap[Int, AgentSpan]()
 
-  override def value(implicit trace: ZTraceElement): UIO[Unit] = UIO.unit
+  override def value(implicit trace: Trace): UIO[Unit] = ZIO.unit
 
-  override private[zio] def unsafeOnStart[R, E, A](
+  override def onStart[R, E, A_](
       environment: ZEnvironment[R],
-      effect: ZIO[R, E, A],
+      effect: ZIO[R, E, A_],
       parent: Option[Fiber.Runtime[Any, Any]],
-      fiber: Fiber.Runtime[E, A]
-  ): Unit = {
-    storage.put(fiber.id.id, helper.makeSnapshot())
+      fiber: Fiber.Runtime[E, A_]
+  )(implicit unsafe: Unsafe): Unit = {
+    if (parent.isDefined) {
+      val span = storage.get(parent.get.id.id)
+      if (span != null) tracer.activateSpan(span, ScopeSource.INSTRUMENTATION, true)
+    }
   }
 
-  override private[zio] def unsafeOnEnd[R, E, A](value: Exit[E, A], fiber: Fiber.Runtime[E, A]): Unit = {
-    storage.remove(fiber.id.id)
-    helper.reset()
+  override def onEnd[R, E, A_](value: Exit[E, A_], fiber: Fiber.Runtime[E, A_])(implicit unsafe: Unsafe): Unit = ()
+
+  override def onSuspend[E, A_](fiber: Fiber.Runtime[E, A_])(implicit unsafe: Unsafe): Unit = {
+    val span  = tracer.activeSpan()
+    val scope = tracer.activeScope()
+    if (span != null) storage.put(fiber.id.id, span)
+    if (scope != null) scope.close()
   }
 
-  override private[zio] def unsafeOnEffect[E, A](fiber: Fiber.Runtime[E, A], effect: ZIO[_, _, _]): Unit = ()
-
-  override private[zio] def unsafeOnSuspend[E, A](fiber: Fiber.Runtime[E, A]): Unit = {
-    storage.put(fiber.id.id, helper.makeSnapshot())
-    helper.reset()
-  }
-
-  override private[zio] def unsafeOnResume[E, A](fiber: Fiber.Runtime[E, A]): Unit = {
-    val snapshot = storage.get(fiber.id.id)
-    if (snapshot != null) helper.restoreSnapshot(snapshot)
+  override def onResume[E, A_](fiber: Fiber.Runtime[E, A_])(implicit unsafe: Unsafe): Unit = {
+    val span = storage.get(fiber.id.id)
+    if (span != null) tracer.activateSpan(span, ScopeSource.INSTRUMENTATION, true)
   }
 
 }
 
 object DataDogSupervisor {
 
-  private trait Helper {
-
-    def makeSnapshot(): (Any, Any)
-
-    def restoreSnapshot(snapshot: (Any, Any)): Unit
-
-    def reset(): Unit
-
-  }
-
-  def make: DataDogSupervisor = {
-    val tracer = GlobalTracer.get()
-
-    val scopeManagerField = tracer.getClass.getDeclaredField("scopeManager")
-    scopeManagerField.setAccessible(true)
-    val scopeManager      = scopeManagerField.get(tracer)
-
-    val tlsScopeStackField = scopeManager.getClass.getDeclaredField("tlsScopeStack")
-    tlsScopeStackField.setAccessible(true)
-    val tlsScopeStack      = tlsScopeStackField.get(scopeManager).asInstanceOf[ThreadLocal[Any]]
-
-    val rootIterationScopesField = scopeManager.getClass.getDeclaredField("rootIterationScopes")
-    rootIterationScopesField.setAccessible(true)
-
-    val scopeStackClass            = tlsScopeStack.get().getClass
-    val scopeStackClassConstructor = scopeStackClass.getDeclaredConstructor()
-    scopeStackClassConstructor.setAccessible(true)
-
-    println(tracer)
-    println(tracer.getClass)
-    println(scopeManagerField)
-    println(scopeManager)
-    println(tlsScopeStack)
-    println(tlsScopeStack.get())
-    println(rootIterationScopesField.get(scopeManager))
-    println(tlsScopeStack.get().getClass)
-    println(scopeStackClassConstructor.newInstance())
-
-    new DataDogSupervisor(
-      new Helper {
-        override def makeSnapshot(): (Any, Any) = (
-          tlsScopeStack.get(),
-          rootIterationScopesField.get(scopeManager)
-        )
-
-        override def restoreSnapshot(snapshot: (Any, Any)): Unit = {
-          tlsScopeStack.set(snapshot._1)
-          rootIterationScopesField.set(scopeManager, snapshot._2)
-        }
-
-        override def reset(): Unit = restoreSnapshot(
-          (
-            scopeStackClassConstructor.newInstance(),
-            null
-          )
-        )
-      }
-    )
-  }
+  def make: DataDogSupervisor =
+    new DataDogSupervisor(AgentTracer.get())
 
 }

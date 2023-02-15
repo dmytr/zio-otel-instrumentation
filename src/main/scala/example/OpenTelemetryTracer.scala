@@ -4,7 +4,7 @@ import io.opentelemetry.api.GlobalOpenTelemetry
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.context.propagation.TextMapGetter
 import io.opentelemetry.context.{Context, Scope}
-import zio.{ZIO, ZManaged}
+import zio._
 
 import scala.jdk.CollectionConverters._
 
@@ -49,7 +49,7 @@ trait OpenTelemetryTracer extends Tracer {
         spanAndScope._1.end()
       }
 
-    ZManaged.acquireReleaseWith(startSpan)(closeSpan).use(_ => zio)
+    ZIO.acquireReleaseWith(startSpan)(closeSpan)(_ => zio)
   }
 
   private object ScalaMapTextMapGetter extends TextMapGetter[Map[String, String]] {

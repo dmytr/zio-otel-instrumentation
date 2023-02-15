@@ -1,17 +1,15 @@
 package benchmark
 
-import zio.RuntimeConfigAspect.addSupervisor
+import example.TracedApp
 import zio._
 
-object TracedWithoutIO extends ZIOAppDefault {
+object TracedWithoutIO extends TracedApp {
 
-  override def run: ZIO[ZEnv with ZIOAppArgs, Any, Any] =
+  override def run: ZIO[Scope, Any, Any] =
     for {
       _ <- Console.printLine("TracedWithoutIO")
       _ <- Console.printLine("==================")
       _ <- Benchmark.run(Benchmark.withoutIO, Duration.fromMillis(60000))
     } yield ()
-
-  override def hook: RuntimeConfigAspect = addSupervisor(new OpenTelemetrySupervisor)
 
 }

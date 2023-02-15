@@ -1,6 +1,6 @@
 package example
 
-import datadog.trace.bootstrap.instrumentation.api.AgentTracer
+import ddtrot.dd.trace.bootstrap.instrumentation.api.AgentTracer
 import zio.ZIO
 
 trait NoopTracer extends Tracer {

@@ -1,7 +1,7 @@
 package example
 
-import datadog.trace.bootstrap.instrumentation.api._
-import zio.{ZIO, ZManaged}
+import ddtrot.dd.trace.bootstrap.instrumentation.api._
+import zio._
 
 trait DataDogTracer extends Tracer {
 
@@ -56,7 +56,7 @@ trait DataDogTracer extends Tracer {
         spanAndScope._1.finish()
       }
 
-    ZManaged.acquireReleaseWith(startSpan)(closeSpan).use(_ => zio)
+    ZIO.acquireReleaseWith(startSpan)(closeSpan)(_ => zio)
   }
 
   private object TextMapGetter extends AgentPropagation.ContextVisitor[Map[String, String]] {

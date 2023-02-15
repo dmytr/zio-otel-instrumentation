@@ -16,19 +16,19 @@ import java.util.UUID
 
 object HttpClient extends TracedApp {
 
-  override def run: ZIO[ZEnv with ZIOAppArgs, Any, Any] =
+  override def run: ZIO[Scope, Any, Any] =
     program
-      .use(run => Console.printLine("HTTP client started") *> run *> ZIO.never)
+      .flatMap(run => Console.printLine("HTTP client started") *> run *> ZIO.never)
       .ensuring(Console.printLine("HTTP client terminated").orDie)
       .orDie
 
-  private def program: ZManaged[Any, Throwable, ZIO[ZEnv, Throwable, Unit]] = {
-    AsyncHttpClientZioBackend.managed().map { backend =>
+  private def program: ZIO[Scope, Throwable, ZIO[Any, Throwable, Unit]] = {
+    AsyncHttpClientZioBackend.scoped().map { backend =>
       ZIO.collectAllParDiscard(List.fill(4)(operation(backend).forever)).unit
     }
   }
 
-  private def operation(backend: SttpBackend[Task, Any]): ZIO[ZEnv, Throwable, Unit] = {
+  private def operation(backend: SttpBackend[Task, Any]): ZIO[Any, Throwable, Unit] = {
     val req = for {
       payload <- generatePayload
       _       <- sendRequest(backend, payload)
@@ -42,14 +42,14 @@ object HttpClient extends TracedApp {
       .runDrain
   }
 
-  def generatePayload: ZIO[ZEnv, Nothing, Payload] =
-    //ZIO.sleep(100.millis) *>
-      ZIO.succeed(Payload(UUID.randomUUID().toString))
+  def generatePayload: ZIO[Any, Nothing, Payload] =
+    // ZIO.sleep(100.millis) *>
+    ZIO.succeed(Payload(UUID.randomUUID().toString))
 
   private val makeRequest: ((List[Header], Payload)) => Request[DecodeResult[Either[Unit, StatusCode]], Any] =
     SttpClientInterpreter().toRequest(pokeEndpoint, Some(Uri("http", "localhost", 8080)))
 
-  def sendRequest(backend: SttpBackend[Task, Any], payload: Payload): ZIO[ZEnv, Throwable, Unit] = {
+  def sendRequest(backend: SttpBackend[Task, Any], payload: Payload): ZIO[Any, Throwable, Unit] = {
     rootSpan("send_request", "http_client_tag" -> payload.id) {
       addBaggage("http_client_tag", payload.id) *>
         backend

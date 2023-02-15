@@ -1,12 +1,10 @@
 package example
 
-import zio.RuntimeConfigAspect.addSupervisor
-import zio.{DataDogSupervisor, RuntimeConfigAspect, ZIOAppDefault}
+import zio._
 
 trait TracedApp extends ZIOAppDefault {
 
-  override def hook: RuntimeConfigAspect =
-    // addSupervisor(new OpenTelemetrySupervisor)
-    addSupervisor(DataDogSupervisor.make)
+  override val bootstrap: ZLayer[ZIOAppArgs, Any, Any] =
+    Runtime.addSupervisor(DataDogSupervisor.make)
 
 }

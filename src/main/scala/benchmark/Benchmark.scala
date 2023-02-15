@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit
 
 object Benchmark {
 
-  def withIO: ZIO[ZEnv, Nothing, Unit] =
+  def withIO: ZIO[Scope, Nothing, Unit] =
     for {
       v <- Random.nextLong
       f <- Files.createTempFile(prefix = None, fileAttributes = List.empty).orDie
@@ -15,7 +15,7 @@ object Benchmark {
       _ <- Files.delete(f).orDie
     } yield ()
 
-  def withoutIO: ZIO[ZEnv, Nothing, Unit] =
+  def withoutIO: ZIO[Scope, Nothing, Unit] =
     for {
       _ <- Random.nextLong
       _ <- Random.nextLong
@@ -23,7 +23,7 @@ object Benchmark {
       _ <- Random.nextLong
     } yield ()
 
-  def run(zio: ZIO[ZEnv, Nothing, Unit], duration: Duration): ZIO[ZEnv with Clock, Nothing, Unit] =
+  def run(zio: ZIO[Scope, Nothing, Unit], duration: Duration): ZIO[Scope, Nothing, Unit] =
     Ref.make(List.empty[Long]).flatMap { stats =>
       iteration(zio, stats).forever
         .timeout(duration)
@@ -31,7 +31,7 @@ object Benchmark {
         .ensuring(printReport(stats, duration))
     }
 
-  private def iteration(zio: ZIO[ZEnv, Nothing, Unit], stats: Ref[List[Long]]): ZIO[ZEnv with Clock, Nothing, Unit] =
+  private def iteration(zio: ZIO[Scope, Nothing, Unit], stats: Ref[List[Long]]): ZIO[Scope, Nothing, Unit] =
     for {
       begin   <- Clock.currentTime(TimeUnit.NANOSECONDS)
       _       <- zio
@@ -40,7 +40,7 @@ object Benchmark {
       _       <- stats.update(duration :: _)
     } yield ()
 
-  private def printReport(stats: Ref[List[Long]], duration: Duration): ZIO[ZEnv, Nothing, Unit] =
+  private def printReport(stats: Ref[List[Long]], duration: Duration): ZIO[Scope, Nothing, Unit] =
     for {
       durations  <- stats.get.map(_.sorted)
       total       = durations.size

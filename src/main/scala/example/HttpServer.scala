@@ -6,9 +6,8 @@ import example.tracer._
 import sttp.model.{Header, StatusCode}
 import sttp.tapir.server.ziohttp.ZioHttpInterpreter
 import sttp.tapir.ztapir.RichZEndpoint
-import zhttp.http.{Http, Request, Response}
-import zhttp.service.Server
 import zio._
+import zio.http.Server
 import zio.interop.catz._
 import zio.interop.catz.implicits._
 import zio.json.JsonEncoder
@@ -19,18 +18,18 @@ object HttpServer extends TracedApp {
 
   private val settings: ProducerSettings = ProducerSettings(List("localhost:9092"))
 
-  override def run: ZIO[ZEnv with ZIOAppArgs, Any, Any] =
+  override def run: ZIO[Scope, Any, Any] =
     program
-      .use(run => Console.printLine("HTTP server started") *> run *> ZIO.never)
+      .flatMap(run => Console.printLine("HTTP server started") *> run *> ZIO.never)
       .ensuring(Console.printLine("HTTP server terminated").orDie)
       .orDie
 
-  private def program: ZManaged[Any, Throwable, ZIO[Any, Nothing, Unit]] = {
+  private def program: ZIO[Scope, Throwable, ZIO[Any, Throwable, Unit]] = {
     for {
       _        <- initializeDatabase
       producer <- makeProducer
       http      = makeHttp(producer)
-    } yield Server.start(8080, http).unit.orDie
+    } yield Server.serve(http).unit.provide(Server.default)
   }
 
   def handleRequest(producer: Producer)(headers: List[Header], payload: Payload): ZIO[Any, Nothing, StatusCode] =
@@ -61,14 +60,14 @@ object HttpServer extends TracedApp {
       sql"insert into payloads (id) values (${payload.id})".update.run.transact(transactor).unit.orDie
     }
 
-  private def initializeDatabase: ZManaged[Any, Throwable, Unit] =
-    sql"create table if not exists payloads (id text)".update.run.transact(transactor).unit.toManaged
+  private def initializeDatabase: ZIO[Scope, Throwable, Unit] =
+    sql"create table if not exists payloads (id text)".update.run.transact(transactor).unit
 
-  private def makeProducer: ZManaged[Any, Throwable, Producer] =
+  private def makeProducer: ZIO[Scope, Throwable, Producer] =
     Producer.make(settings)
 
-  private def makeHttp(producer: Producer): Http[Any, Throwable, Request, Response] =
-    ZioHttpInterpreter().toHttp(Routes.pokeEndpoint.zServerLogic { case (headers, payload) =>
+  private def makeHttp(producer: Producer): http.App[Any] =
+    ZioHttpInterpreter().toApp(Routes.pokeEndpoint.zServerLogic { case (headers, payload) =>
       handleRequest(producer)(headers, payload)
     })
 
