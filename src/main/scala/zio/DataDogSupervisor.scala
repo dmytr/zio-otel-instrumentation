@@ -1,14 +1,13 @@
 package zio
 
-import datadog.trace.bootstrap.instrumentation.api.AgentScope
-import datadog.trace.bootstrap.instrumentation.api.AgentTracer.activeScope
+import datadog.trace.api.GlobalTracer
 import zio.DataDogSupervisor.Helper
 
 import java.util.concurrent.ConcurrentHashMap
 
 final class DataDogSupervisor private (private val helper: Helper) extends Supervisor[Unit] {
 
-  private val states = new ConcurrentHashMap[Int, AnyRef]()
+  private val storage = new ConcurrentHashMap[Int, (Any, Any)]()
 
   override def value(implicit trace: ZTraceElement): UIO[Unit] = UIO.unit
 
@@ -18,22 +17,24 @@ final class DataDogSupervisor private (private val helper: Helper) extends Super
       parent: Option[Fiber.Runtime[Any, Any]],
       fiber: Fiber.Runtime[E, A]
   ): Unit = {
-    val state = helper.enter(currentState = null)
-    if (state != null) states.put(fiber.id.id, state)
+    storage.put(fiber.id.id, helper.makeSnapshot())
   }
 
   override private[zio] def unsafeOnEnd[R, E, A](value: Exit[E, A], fiber: Fiber.Runtime[E, A]): Unit = {
-    helper.exit(states.remove(fiber.id.id))
+    storage.remove(fiber.id.id)
+    helper.reset()
   }
 
   override private[zio] def unsafeOnEffect[E, A](fiber: Fiber.Runtime[E, A], effect: ZIO[_, _, _]): Unit = ()
 
   override private[zio] def unsafeOnSuspend[E, A](fiber: Fiber.Runtime[E, A]): Unit = {
-    helper.exit(states.get(fiber.id.id))
+    storage.put(fiber.id.id, helper.makeSnapshot())
+    helper.reset()
   }
 
   override private[zio] def unsafeOnResume[E, A](fiber: Fiber.Runtime[E, A]): Unit = {
-    helper.enter(states.get(fiber.id.id))
+    val snapshot = storage.get(fiber.id.id)
+    if (snapshot != null) helper.restoreSnapshot(snapshot)
   }
 
 }
@@ -42,41 +43,60 @@ object DataDogSupervisor {
 
   private trait Helper {
 
-    def enter(currentState: AnyRef): AnyRef
+    def makeSnapshot(): (Any, Any)
 
-    def exit(state: AnyRef): Unit
+    def restoreSnapshot(snapshot: (Any, Any)): Unit
+
+    def reset(): Unit
 
   }
 
   def make: DataDogSupervisor = {
-    // Based on https://github.com/DataDog/dd-trace-java/pull/3252
-    val stateClass                = Class.forName("datadog.trace.bootstrap.instrumentation.java.concurrent.State")
-    val captureAndSetContinuation = stateClass.getDeclaredMethod("captureAndSetContinuation", classOf[AgentScope])
-    val startThreadMigration      = stateClass.getDeclaredMethod("startThreadMigration")
-    val closeContinuation         = stateClass.getDeclaredMethod("closeContinuation")
+    val tracer = GlobalTracer.get()
 
-    val stateFactoryField = stateClass.getDeclaredField("FACTORY")
-    val stateFactory      = stateFactoryField.get(null)
-    val stateFactoryClass = Class.forName("datadog.trace.bootstrap.ContextStore$Factory")
-    val createState       = stateFactoryClass.getMethod("create")
+    val scopeManagerField = tracer.getClass.getDeclaredField("scopeManager")
+    scopeManagerField.setAccessible(true)
+    val scopeManager      = scopeManagerField.get(tracer)
+
+    val tlsScopeStackField = scopeManager.getClass.getDeclaredField("tlsScopeStack")
+    tlsScopeStackField.setAccessible(true)
+    val tlsScopeStack      = tlsScopeStackField.get(scopeManager).asInstanceOf[ThreadLocal[Any]]
+
+    val rootIterationScopesField = scopeManager.getClass.getDeclaredField("rootIterationScopes")
+    rootIterationScopesField.setAccessible(true)
+
+    val scopeStackClass            = tlsScopeStack.get().getClass
+    val scopeStackClassConstructor = scopeStackClass.getDeclaredConstructor()
+    scopeStackClassConstructor.setAccessible(true)
+
+    println(tracer)
+    println(tracer.getClass)
+    println(scopeManagerField)
+    println(scopeManager)
+    println(tlsScopeStack)
+    println(tlsScopeStack.get())
+    println(rootIterationScopesField.get(scopeManager))
+    println(tlsScopeStack.get().getClass)
+    println(scopeStackClassConstructor.newInstance())
 
     new DataDogSupervisor(
       new Helper {
+        override def makeSnapshot(): (Any, Any) = (
+          tlsScopeStack.get(),
+          rootIterationScopesField.get(scopeManager)
+        )
 
-        override def enter(currentState: AnyRef): AnyRef = {
-          val scope = activeScope()
-          if (scope != null && scope.isAsyncPropagating) {
-            val state = if (currentState == null) createState.invoke(stateFactory) else currentState
-            captureAndSetContinuation.invoke(state, scope)
-            startThreadMigration.invoke(state)
-            state
-          } else null
+        override def restoreSnapshot(snapshot: (Any, Any)): Unit = {
+          tlsScopeStack.set(snapshot._1)
+          rootIterationScopesField.set(scopeManager, snapshot._2)
         }
 
-        override def exit(state: AnyRef): Unit = {
-          if (state != null) closeContinuation.invoke(state)
-        }
-
+        override def reset(): Unit = restoreSnapshot(
+          (
+            scopeStackClassConstructor.newInstance(),
+            null
+          )
+        )
       }
     )
   }
