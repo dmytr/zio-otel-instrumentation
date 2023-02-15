@@ -1,11 +1,16 @@
 package example
 
-import ddtrot.dd.trace.bootstrap.instrumentation.api._
-import zio._
+import io.opentracing.propagation.{Format, TextMapExtract}
+import io.opentracing.util.GlobalTracer
+import io.opentracing.{Scope, Span, SpanContext}
+import zio.{Scope => _, _}
 
-trait DataDogTracer extends Tracer {
+import java.util
+import scala.jdk.CollectionConverters._
 
-  private lazy val tracer = AgentTracer.get()
+trait DataDogTracer extends example.Tracer {
+
+  private lazy val tracer = GlobalTracer.get()
 
   def span[R, E, A](name: String, tags: (String, String)*)(zio: ZIO[R, E, A]): ZIO[R, E, A] =
     ZIO.succeed(tracer.activeSpan()).flatMap { parent =>
@@ -18,7 +23,7 @@ trait DataDogTracer extends Tracer {
   def continueSpan[R, E, A](name: String, headers: Map[String, String], tags: (String, String)*)(
       zio: ZIO[R, E, A]
   ): ZIO[R, E, A] = {
-    ZIO.succeed(tracer.extract(headers, TextMapGetter)).flatMap { parent =>
+    ZIO.succeed(tracer.extract(Format.Builtin.TEXT_MAP_EXTRACT, new TextMapGetter(headers))).flatMap { parent =>
       childSpan(parent, parent == null, name, tags: _*)(zio)
     }
   }
@@ -36,7 +41,7 @@ trait DataDogTracer extends Tracer {
       else None
     }
 
-  private def childSpan[R, E, A](parent: AgentSpan.Context, isRoot: Boolean, name: String, tags: (String, String)*)(
+  private def childSpan[R, E, A](parent: SpanContext, isRoot: Boolean, name: String, tags: (String, String)*)(
       zio: ZIO[R, E, A]
   ): ZIO[R, E, A] = {
     val startSpan =
@@ -47,10 +52,10 @@ trait DataDogTracer extends Tracer {
                          )
         span          <- ZIO.succeed { if (isRoot) spanBuilder.ignoreActiveSpan().start() else spanBuilder.start() }
         spanWithAttrs <- ZIO.foldLeft(tags)(span) { (span, tag) => ZIO.succeed(span.setBaggageItem(tag._1, tag._2)) }
-        scope         <- ZIO.succeed(tracer.activateSpan(spanWithAttrs, ScopeSource.MANUAL))
+        scope         <- ZIO.succeed(tracer.activateSpan(spanWithAttrs))
       } yield spanWithAttrs -> scope
 
-    def closeSpan(spanAndScope: (AgentSpan, AgentScope)) =
+    def closeSpan(spanAndScope: (Span, Scope)) =
       ZIO.succeed {
         spanAndScope._2.close()
         spanAndScope._1.finish()
@@ -59,10 +64,9 @@ trait DataDogTracer extends Tracer {
     ZIO.acquireReleaseWith(startSpan)(closeSpan)(_ => zio)
   }
 
-  private object TextMapGetter extends AgentPropagation.ContextVisitor[Map[String, String]] {
-    override def forEachKey(carrier: Map[String, String], classifier: AgentPropagation.KeyClassifier): Unit = {
-      carrier.foreach { case (key, value) => classifier.accept(key, value) }
-    }
+  private class TextMapGetter(map: Map[String, String]) extends TextMapExtract {
+    override def iterator(): util.Iterator[java.util.Map.Entry[String, String]] =
+      map.asJava.entrySet().iterator()
   }
 
 }

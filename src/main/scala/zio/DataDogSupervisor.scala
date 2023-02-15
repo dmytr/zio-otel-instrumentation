@@ -1,12 +1,15 @@
 package zio
 
-import ddtrot.dd.trace.bootstrap.instrumentation.api.{AgentSpan, AgentTracer, ScopeSource}
+import io.opentracing.util.GlobalTracer
+import io.opentracing.{Span, Tracer}
 
 import java.util.concurrent.ConcurrentHashMap
+import scala.annotation.nowarn
 
-final class DataDogSupervisor private (tracer: AgentTracer.TracerAPI) extends Supervisor[Unit] {
+@nowarn
+final class DataDogSupervisor private (tracer: Tracer) extends Supervisor[Unit] {
 
-  private val storage = new ConcurrentHashMap[Int, AgentSpan]()
+  private val storage = new ConcurrentHashMap[Int, Span]()
 
   override def value(implicit trace: Trace): UIO[Unit] = ZIO.unit
 
@@ -18,7 +21,7 @@ final class DataDogSupervisor private (tracer: AgentTracer.TracerAPI) extends Su
   )(implicit unsafe: Unsafe): Unit = {
     if (parent.isDefined) {
       val span = storage.get(parent.get.id.id)
-      if (span != null) tracer.activateSpan(span, ScopeSource.INSTRUMENTATION, true)
+      if (span != null) tracer.scopeManager().activate(span)
     }
   }
 
@@ -26,14 +29,14 @@ final class DataDogSupervisor private (tracer: AgentTracer.TracerAPI) extends Su
 
   override def onSuspend[E, A_](fiber: Fiber.Runtime[E, A_])(implicit unsafe: Unsafe): Unit = {
     val span  = tracer.activeSpan()
-    val scope = tracer.activeScope()
+    val scope = tracer.scopeManager().active()
     if (span != null) storage.put(fiber.id.id, span)
     if (scope != null) scope.close()
   }
 
   override def onResume[E, A_](fiber: Fiber.Runtime[E, A_])(implicit unsafe: Unsafe): Unit = {
     val span = storage.get(fiber.id.id)
-    if (span != null) tracer.activateSpan(span, ScopeSource.INSTRUMENTATION, true)
+    if (span != null) tracer.activateSpan(span)
   }
 
 }
@@ -41,6 +44,6 @@ final class DataDogSupervisor private (tracer: AgentTracer.TracerAPI) extends Su
 object DataDogSupervisor {
 
   def make: DataDogSupervisor =
-    new DataDogSupervisor(AgentTracer.get())
+    new DataDogSupervisor(GlobalTracer.get())
 
 }
