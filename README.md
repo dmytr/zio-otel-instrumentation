@@ -90,6 +90,7 @@ $ sbt -J-Ddd.service=example-consumer \
       -J-Ddd.env=dev \
       -J-Ddd.trace.sample.rate=1 \
       -J-javaagent:$DD_AGENT_PATH \
+      -J-Ddd.integration.zio.experimental.enabled=true \
       -J-Dexample.instrumentation=dd \
       "runMain example.KafkaConsumer"
 $ sbt -J-Ddd.service=example-server \
@@ -97,6 +98,7 @@ $ sbt -J-Ddd.service=example-server \
       -J-Ddd.env=dev \
       -J-Ddd.trace.sample.rate=1 \
       -J-javaagent:$DD_AGENT_PATH \
+      -J-Ddd.integration.zio.experimental.enabled=true \
       -J-Dexample.instrumentation=dd \
       "runMain example.HttpServer"
 $ sbt -J-Ddd.service=example-client \
@@ -104,6 +106,7 @@ $ sbt -J-Ddd.service=example-client \
       -J-Ddd.env=dev \
       -J-Ddd.trace.sample.rate=1 \
       -J-javaagent:$DD_AGENT_PATH \
+      -J-Ddd.integration.zio.experimental.enabled=true \
       -J-Dexample.instrumentation=dd \
       "runMain example.HttpClient"
 ```
